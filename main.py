@@ -10,10 +10,18 @@ import httpx
 app = FastAPI()
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
 
 class TTSRequest(BaseModel):
     text: str
     voice: str = "onyx"
+
+class ImageEditRequest(BaseModel):
+    image_url: str
+    prompt: str
+
+class ImageGenerateRequest(BaseModel):
+    prompt: str
 
 @app.get("/")
 def health():
@@ -35,40 +43,75 @@ async def text_to_speech(req: TTSRequest):
         return {"file_id": file_id, "url_path": f"/audio/{file_id}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
 
-class ElevenLabsRequest(BaseModel):
-    text: str
-    voice_id: str = "pNInz6obpgDQGcFmaJgB"  # Adam sesi (Türkçe iyi)
-
-@app.post("/elevenlabs-tts")
-async def elevenlabs_tts(req: ElevenLabsRequest):
-    try:
-        
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{req.voice_id}"
-        headers = {
-            "xi-api-key": ELEVENLABS_API_KEY,
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "text": req.text,
-            "model_id": "eleven_multilingual_v2",
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
-        }
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload, headers=headers)
-            response.raise_for_status()
-        
-        file_id = str(uuid.uuid4())
-        file_path = f"/tmp/{file_id}.mp3"
-        with open(file_path, "wb") as f:
-            f.write(response.content)
-        return {"file_id": file_id, "url_path": f"/audio/{file_id}"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 @app.get("/audio/{file_id}")
 async def get_audio(file_id: str):
     file_path = f"/tmp/{file_id}.mp3"
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Audio not found")
     return FileResponse(file_path, media_type="audio/mpeg")
+
+@app.post("/image_edit")
+async def image_edit(req: ImageEditRequest):
+    try:
+        # Görseli URL'den indir
+        async with httpx.AsyncClient() as client:
+            img_response = await client.get(req.image_url)
+            img_bytes = img_response.content
+
+        file_id = str(uuid.uuid4())
+        input_path = f"/tmp/{file_id}_input.png"
+        output_path = f"/tmp/{file_id}_output.png"
+
+        with open(input_path, "wb") as f:
+            f.write(img_bytes)
+
+        # GPT-4o Image Edit
+        oai = openai.OpenAI(api_key=OPENAI_API_KEY)
+        with open(input_path, "rb") as img_file:
+            response = oai.images.edit(
+                model="gpt-image-1",
+                image=img_file,
+                prompt=req.prompt,
+                n=1,
+                size="1024x1024"
+            )
+
+        # Sonucu kaydet
+        edited_b64 = response.data[0].b64_json
+        edited_bytes = base64.b64decode(edited_b64)
+        with open(output_path, "wb") as f:
+            f.write(edited_bytes)
+
+        return {"file_id": file_id, "url_path": f"/image/{file_id}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/image_generate")
+async def image_generate(req: ImageGenerateRequest):
+    try:
+        oai = openai.OpenAI(api_key=OPENAI_API_KEY)
+        response = oai.images.generate(
+            model="gpt-image-1",
+            prompt=req.prompt,
+            n=1,
+            size="1024x1024"
+        )
+        edited_b64 = response.data[0].b64_json
+        edited_bytes = base64.b64decode(edited_b64)
+
+        file_id = str(uuid.uuid4())
+        output_path = f"/tmp/{file_id}_output.png"
+        with open(output_path, "wb") as f:
+            f.write(edited_bytes)
+
+        return {"file_id": file_id, "url_path": f"/image/{file_id}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/image/{file_id}")
+async def get_image(file_id: str):
+    output_path = f"/tmp/{file_id}_output.png"
+    if not os.path.exists(output_path):
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(output_path, media_type="image/png")
