@@ -5,6 +5,7 @@ import openai
 import base64
 import os
 import uuid
+import httpx
 
 app = FastAPI()
 
@@ -43,7 +44,7 @@ class ElevenLabsRequest(BaseModel):
 @app.post("/elevenlabs-tts")
 async def elevenlabs_tts(req: ElevenLabsRequest):
     try:
-        import httpx
+        
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{req.voice_id}"
         headers = {
             "xi-api-key": ELEVENLABS_API_KEY,
