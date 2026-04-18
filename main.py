@@ -7,6 +7,7 @@ import base64
 import os
 import uuid
 import httpx
+from typing import Optional
 
 app = FastAPI()
 
@@ -26,7 +27,9 @@ class ImageGenerateRequest(BaseModel):
     prompt: str
 
 class ImageAnalyzeRequest(BaseModel):
-    image_url: str
+    image_base64: Optional[str] = None
+    image_url: Optional[str] = None
+    media_type: str = "image/jpeg"
     prompt: str
 
 @app.get("/")
@@ -122,11 +125,17 @@ async def get_image(file_id: str):
 @app.post("/analyze_image")
 async def analyze_image(req: ImageAnalyzeRequest):
     try:
-        async with httpx.AsyncClient() as http_client:
-            img_response = await http_client.get(req.image_url)
-            img_bytes = img_response.content
-
-        img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+        if req.image_base64:
+            img_base64 = req.image_base64
+            if ',' in img_base64:
+                img_base64 = img_base64.split(',')[1]
+        elif req.image_url:
+            async with httpx.AsyncClient() as http_client:
+                img_response = await http_client.get(req.image_url)
+                img_bytes = img_response.content
+            img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+        else:
+            raise HTTPException(status_code=400, detail="image_base64 or image_url required")
 
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         response = client.messages.create(
@@ -140,7 +149,7 @@ async def analyze_image(req: ImageAnalyzeRequest):
                             "type": "image",
                             "source": {
                                 "type": "base64",
-                                "media_type": "image/jpeg",
+                                "media_type": req.media_type,
                                 "data": img_base64
                             }
                         },
