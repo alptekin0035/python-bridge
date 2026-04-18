@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import openai
+import anthropic
 import base64
 import os
 import uuid
@@ -11,6 +12,7 @@ app = FastAPI()
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 class TTSRequest(BaseModel):
     text: str
@@ -21,6 +23,10 @@ class ImageEditRequest(BaseModel):
     prompt: str
 
 class ImageGenerateRequest(BaseModel):
+    prompt: str
+
+class ImageAnalyzeRequest(BaseModel):
+    image_url: str
     prompt: str
 
 @app.get("/")
@@ -54,7 +60,6 @@ async def get_audio(file_id: str):
 @app.post("/image_edit")
 async def image_edit(req: ImageEditRequest):
     try:
-        # Görseli URL'den indir
         async with httpx.AsyncClient() as client:
             img_response = await client.get(req.image_url)
             img_bytes = img_response.content
@@ -66,7 +71,6 @@ async def image_edit(req: ImageEditRequest):
         with open(input_path, "wb") as f:
             f.write(img_bytes)
 
-        # GPT-4o Image Edit
         oai = openai.OpenAI(api_key=OPENAI_API_KEY)
         with open(input_path, "rb") as img_file:
             response = oai.images.edit(
@@ -77,7 +81,6 @@ async def image_edit(req: ImageEditRequest):
                 size="1024x1024"
             )
 
-        # Sonucu kaydet
         edited_b64 = response.data[0].b64_json
         edited_bytes = base64.b64decode(edited_b64)
         with open(output_path, "wb") as f:
@@ -115,23 +118,17 @@ async def get_image(file_id: str):
     if not os.path.exists(output_path):
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(output_path, media_type="image/png")
-    class ImageAnalyzeRequest(BaseModel):
-    image_url: str
-    prompt: str
 
 @app.post("/analyze_image")
 async def analyze_image(req: ImageAnalyzeRequest):
     try:
-        import anthropic
-        import httpx
-        
         async with httpx.AsyncClient() as http_client:
             img_response = await http_client.get(req.image_url)
             img_bytes = img_response.content
-        
+
         img_base64 = base64.b64encode(img_bytes).decode('utf-8')
-        
-        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         response = client.messages.create(
             model="claude-opus-4-5",
             max_tokens=1024,
