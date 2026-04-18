@@ -115,3 +115,46 @@ async def get_image(file_id: str):
     if not os.path.exists(output_path):
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(output_path, media_type="image/png")
+    class ImageAnalyzeRequest(BaseModel):
+    image_url: str
+    prompt: str
+
+@app.post("/analyze_image")
+async def analyze_image(req: ImageAnalyzeRequest):
+    try:
+        import anthropic
+        import httpx
+        
+        async with httpx.AsyncClient() as http_client:
+            img_response = await http_client.get(req.image_url)
+            img_bytes = img_response.content
+        
+        img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+        
+        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        response = client.messages.create(
+            model="claude-opus-4-5",
+            max_tokens=1024,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": img_base64
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": req.prompt
+                        }
+                    ]
+                }
+            ]
+        )
+        return {"result": response.content[0].text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
