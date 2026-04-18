@@ -14,6 +14,7 @@ app = FastAPI()
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN")
 
 class TTSRequest(BaseModel):
     text: str
@@ -27,9 +28,7 @@ class ImageGenerateRequest(BaseModel):
     prompt: str
 
 class ImageAnalyzeRequest(BaseModel):
-    image_base64: Optional[str] = None
-    image_url: Optional[str] = None
-    media_type: str = "image/jpeg"
+    image_url: str
     prompt: str
 
 @app.get("/")
@@ -125,17 +124,12 @@ async def get_image(file_id: str):
 @app.post("/analyze_image")
 async def analyze_image(req: ImageAnalyzeRequest):
     try:
-        if req.image_base64:
-            img_base64 = req.image_base64
-            if ',' in img_base64:
-                img_base64 = img_base64.split(',')[1]
-        elif req.image_url:
-            async with httpx.AsyncClient() as http_client:
-                img_response = await http_client.get(req.image_url)
-                img_bytes = img_response.content
-            img_base64 = base64.b64encode(img_bytes).decode('utf-8')
-        else:
-            raise HTTPException(status_code=400, detail="image_base64 or image_url required")
+        headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
+        async with httpx.AsyncClient() as http_client:
+            img_response = await http_client.get(req.image_url, headers=headers)
+            img_bytes = img_response.content
+        
+        img_base64 = base64.b64encode(img_bytes).decode('utf-8')
 
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         response = client.messages.create(
@@ -149,7 +143,7 @@ async def analyze_image(req: ImageAnalyzeRequest):
                             "type": "image",
                             "source": {
                                 "type": "base64",
-                                "media_type": req.media_type,
+                                "media_type": "image/jpeg",
                                 "data": img_base64
                             }
                         },
