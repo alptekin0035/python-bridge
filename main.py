@@ -62,8 +62,9 @@ async def get_audio(file_id: str):
 @app.post("/image_edit")
 async def image_edit(req: ImageEditRequest):
     try:
+        headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
         async with httpx.AsyncClient() as client:
-            img_response = await client.get(req.image_url)
+            img_response = await client.get(req.image_url, headers=headers)
             img_bytes = img_response.content
 
         file_id = str(uuid.uuid4())
@@ -128,7 +129,7 @@ async def analyze_image(req: ImageAnalyzeRequest):
         async with httpx.AsyncClient() as http_client:
             img_response = await http_client.get(req.image_url, headers=headers)
             img_bytes = img_response.content
-        
+
         img_base64 = base64.b64encode(img_bytes).decode('utf-8')
 
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
